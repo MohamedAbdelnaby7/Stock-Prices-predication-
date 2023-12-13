@@ -62,53 +62,71 @@ def evaluate_model(ax, data, title, predicted_prices_rls_train, predicted_prices
     # Plot actual and predicted prices
     ax.plot(time_indices, data['Close'], label='Actual Close Price')
     ax.plot(time_indices[:train_size], predicted_prices_rls_train, label='RLS - Training')
-    ax.plot(time_indices[:train_size], linear_predictions_train, label='Linear Regression - Training')
+    ax.plot(time_indices[:train_size], linear_predictions_train, label='Linear Reg - Training')
     ax.plot(time_indices[train_size:], predicted_prices_rls_test, label='RLS - Testing')
-    ax.plot(time_indices[train_size:], linear_predictions_test, label='Linear Regression - Testing')
+    ax.plot(time_indices[train_size:], linear_predictions_test, label='Linear Reg - Testing')
     ax.set_title(title)
-    ax.legend()
+    ax.legend(fontsize='small')
 
     # Annotate the plot with MSE values for training and testing sets
     ax.annotate(f'MSE Linear (Train): {mse_linear_train:.2f}', xy=(0.05, 0.85), xycoords='axes fraction', color='green')
     ax.annotate(f'MSE RLS (Train): {mse_rls_train:.2f}', xy=(0.05, 0.80), xycoords='axes fraction', color='orange')
     ax.annotate(f'MSE Linear (Test): {mse_linear_test:.2f}', xy=(0.05, 0.75), xycoords='axes fraction', color='purple')
     ax.annotate(f'MSE RLS (Test): {mse_rls_test:.2f}', xy=(0.05, 0.70), xycoords='axes fraction', color='red')
+    # Return the MSE values
+    return {
+        'Stock': title,
+        'MSE Linear (Train)': mse_linear_train,
+        'MSE RLS (Train)': mse_rls_train,
+        'MSE Linear (Test)': mse_linear_test,
+        'MSE RLS (Test)': mse_rls_test
+    }
 
-
-# Create subplots for each stock
-fig, axs = plt.subplots(3, 3, figsize=(15, 10))
-fig.suptitle('Stock Price Predictions', fontsize=16)
-
-for i, stock_file in enumerate(stock_files[:9]):
-    file_path = os.path.join(stocks_folder, stock_file)
-    data_stock = pd.read_csv(file_path)
-
-    # Split the data into training and testing sets
-    train_data, test_data = train_test_split(data_stock, test_size=0.2, shuffle=False)
-
-    # Apply RLS algorithm on the training set
-    predicted_prices_rls_train, theta_train = rls_algorithm(train_data)
-
-    # Apply RLS algorithm on the testing set using the learned theta
-    predicted_prices_rls_test, _ = rls_algorithm(test_data)
-
-    # Fit a linear regression model as a threshold
-    X_train = train_data[['Open', 'High', 'Low', 'Volume']]
-    y_train = train_data['Close']
-    linear_model = LinearRegression()
-    linear_model.fit(X_train, y_train)
-    linear_predictions_train = linear_model.predict(X_train)
-
-    # Predictions on the testing set using the linear model
-    X_test = test_data[['Open', 'High', 'Low', 'Volume']]
-    linear_predictions_test = linear_model.predict(X_test)
-
-    r, c = divmod(i, 3)
-    print(r, c)
-    # Evaluate the models and plot results in the respective subplot
-    evaluate_model(axs[r,c], data_stock, f'Stock: {stock_file.replace(".csv", "")}', predicted_prices_rls_train, predicted_prices_rls_test, linear_predictions_train, linear_predictions_test, data_stock.index, len(train_data))
-fig.show()
-
+stop_learning = False
+for j in range(2):
+    # Create subplots for each stock
+    fig, axs = plt.subplots(3, 3, figsize=(15, 10))
+    fig.suptitle('Stock Price Predictions', fontsize=16)
+    # Create a list to store MSE values for all stocks
+    mse_values_all = []
+    stop_learning = ~stop_learning
+    for i, stock_file in enumerate(stock_files[:9]):
+        file_path = os.path.join(stocks_folder, stock_file)
+        data_stock = pd.read_csv(file_path)
+    
+        # Split the data into training and testing sets
+        train_data, test_data = train_test_split(data_stock, test_size=0.2, shuffle=False)
+    
+        # Apply RLS algorithm on the training set
+        predicted_prices_rls_train, theta_train = rls_algorithm(train_data)
+        if ~stop_learning:
+            # Apply RLS algorithm on the testing set using the learned theta
+            predicted_prices_rls_test, _ = rls_algorithm(test_data)
+        else:
+            x = np.array([test_data['Open'], test_data['High'], test_data['Low'], test_data['Volume']])
+            predicted_prices_rls_test = np.dot(theta_train, x)
+    
+        # Fit a linear regression model as a threshold
+        X_train = train_data[['Open', 'High', 'Low', 'Volume']]
+        y_train = train_data['Close']
+        linear_model = LinearRegression()
+        linear_model.fit(X_train, y_train)
+        linear_predictions_train = linear_model.predict(X_train)
+    
+        # Predictions on the testing set using the linear model
+        X_test = test_data[['Open', 'High', 'Low', 'Volume']]
+        linear_predictions_test = linear_model.predict(X_test)
+    
+        r, c = divmod(i, 3)
+        print(r, c)
+        # Evaluate the models and plot results in the respective subplot
+        mse_values = evaluate_model(axs[r,c], data_stock, f'Stock: {stock_file.replace(".csv", "")}', predicted_prices_rls_train, predicted_prices_rls_test, linear_predictions_train, linear_predictions_test, data_stock.index, len(train_data))
+        # Append MSE values to the list
+        mse_values_all.append(mse_values)
+    # Convert the list of MSE values to a DataFrame
+    mse_df_all = pd.DataFrame(mse_values_all)# Display the MSE DataFrame
+    mse_df_all.to_csv(f'mse_df_all_iteration_{j}.csv', index=False)
+    fig.show()
 
 # Initialize RLS variables for transfer learning
 P_transfer = lambda_factor * np.identity(n_features)
